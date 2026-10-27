@@ -57,13 +57,29 @@ describe("canBook", () => {
 
   describe("T15: bookings are not mutated", () => {
     it("when result is true", () => {
-      const input = makeInput({ start: 660, end: 720 });
+      const input = makeInput({
+        start: 660,
+        end: 700,
+        bookings: [
+          { start: 700, end: 760 },
+          { start: 600, end: 660 },
+          { start: 800, end: 860 },
+        ],
+      });
       const before = JSON.stringify(input.bookings);
       expect(canBook(input)).toBe(true);
       expect(JSON.stringify(input.bookings)).toBe(before);
     });
     it("when result is false", () => {
-      const input = makeInput({ start: 630, end: 690 });
+      const input = makeInput({
+        start: 630,
+        end: 690,
+        bookings: [
+          { start: 700, end: 760 },
+          { start: 600, end: 660 },
+          { start: 800, end: 860 },
+        ],
+      });
       const before = JSON.stringify(input.bookings);
       expect(canBook(input)).toBe(false);
       expect(JSON.stringify(input.bookings)).toBe(before);
