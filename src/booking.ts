@@ -23,7 +23,7 @@ export function isValidInterval(start: number, end: number): boolean {
  * Strict "<" (not "<=") is what lets touching intervals such as 600-660 and 660-720 pass.
  */
 export function intervalsOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
-  return aStart < bEnd && bStart < aEnd;
+  return aStart <= bEnd && bStart <= aEnd;
 }
 
 /**
