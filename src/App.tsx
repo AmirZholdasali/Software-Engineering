@@ -25,6 +25,13 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
+import {
+  MINUTES_PER_DAY,
+  MAX_BOOKING_MINUTES,
+  isValidInterval,
+  intervalsOverlap,
+  canBook,
+} from "./booking";
 
 /* ============================ 1. Types ============================ */
 
@@ -57,8 +64,7 @@ export type Decision = { available: boolean; issues: Issue[] };
 
 /* ====================== 2. Constants & sample data ====================== */
 
-export const MINUTES_PER_DAY = 1440;
-export const MAX_BOOKING_MINUTES = 120;
+export { MINUTES_PER_DAY, MAX_BOOKING_MINUTES, isValidInterval, intervalsOverlap, canBook };
 
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -138,25 +144,6 @@ export function formatTime(total: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** AC1 (first half): 0 <= start < end <= 1440, both whole minutes. */
-export function isValidInterval(start: number, end: number): boolean {
-  return (
-    Number.isInteger(start) &&
-    Number.isInteger(end) &&
-    start >= 0 &&
-    start < end &&
-    end <= MINUTES_PER_DAY
-  );
-}
-
-/**
- * AC4: two half-open intervals overlap only if each one starts BEFORE the other ends.
- * Strict "<" (not "<=") is what lets touching intervals such as 600-660 and 660-720 pass.
- */
-export function intervalsOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
-  return aStart < bEnd && bStart < aEnd;
-}
-
 /**
  * Applies AC1-AC4 to one request. Pure function: it only reads its arguments,
  * never changes them, and returns a fresh result object (AC5).
@@ -209,7 +196,8 @@ export function checkAvailability(room: Room, start: number, end: number, now: n
     }
   }
 
-  return { available: issues.length === 0, issues };
+  const available = canBook({ start, end, now, blocked: room.blocked, bookings: room.bookings });
+  return { available, issues };
 }
 
 /* ========================= 4. Small UI pieces ========================= */
