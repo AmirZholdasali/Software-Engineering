@@ -31,6 +31,7 @@ import {
   isValidInterval,
   intervalsOverlap,
   canBook,
+  evaluateBooking,
 } from "./booking";
 
 /* ============================ 1. Types ============================ */
@@ -145,58 +146,49 @@ export function formatTime(total: number): string {
 }
 
 /**
- * Applies AC1-AC4 to one request. Pure function: it only reads its arguments,
- * never changes them, and returns a fresh result object (AC5).
+ * Asks the booking rules (AC1-AC4, see booking.ts) about one request and turns each violation
+ * into a user-facing message. Pure function: it only reads its arguments, never changes them,
+ * and returns a fresh result object (AC5).
  */
 export function checkAvailability(room: Room, start: number, end: number, now: number): Decision {
-  const issues: Issue[] = [];
+  const { available, violations } = evaluateBooking<Booking>({
+    start,
+    end,
+    now,
+    blocked: room.blocked,
+    bookings: room.bookings,
+  });
 
-  // AC1: valid interval, and it must start strictly after the current time
-  const validInterval = isValidInterval(start, end);
-  if (!validInterval) {
-    issues.push({
-      code: "INVALID_RANGE",
-      message: `Start (${formatTime(start)}) must be earlier than end (${formatTime(end)}), and both must be between 00:00 and 24:00.`,
-    });
-  }
-  if (start <= now) {
-    issues.push({
-      code: "IN_PAST",
-      message: `Start (${formatTime(start)}) must be later than the current time (${formatTime(now)}).`,
-    });
-  }
-
-  // The remaining rules only make sense for a well-formed interval.
-  if (!validInterval) return { available: false, issues };
-
-  // AC2: maximum 120 minutes
-  const duration = end - start;
-  if (duration > MAX_BOOKING_MINUTES) {
-    issues.push({
-      code: "TOO_LONG",
-      message: `Bookings can last at most ${MAX_BOOKING_MINUTES} minutes. This request is ${duration} minutes.`,
-    });
-  }
-
-  // AC3: blocked room
-  if (room.blocked) {
-    issues.push({
-      code: "ROOM_BLOCKED",
-      message: `${room.name} is blocked${room.blockedReason ? `: ${room.blockedReason}` : ""}.`,
-    });
-  }
-
-  // AC4: overlap with any existing booking (touching endpoints are fine)
-  for (const booking of room.bookings) {
-    if (intervalsOverlap(start, end, booking.start, booking.end)) {
-      issues.push({
-        code: "OVERLAP",
-        message: `Overlaps "${booking.title}" (${formatTime(booking.start)}-${formatTime(booking.end)}).`,
-      });
+  const issues: Issue[] = violations.map((v): Issue => {
+    switch (v.code) {
+      case "INVALID_RANGE":
+        return {
+          code: v.code,
+          message: `Start (${formatTime(start)}) must be earlier than end (${formatTime(end)}), and both must be between 00:00 and 24:00.`,
+        };
+      case "IN_PAST":
+        return {
+          code: v.code,
+          message: `Start (${formatTime(start)}) must be later than the current time (${formatTime(now)}).`,
+        };
+      case "TOO_LONG":
+        return {
+          code: v.code,
+          message: `Bookings can last at most ${MAX_BOOKING_MINUTES} minutes. This request is ${end - start} minutes.`,
+        };
+      case "ROOM_BLOCKED":
+        return {
+          code: v.code,
+          message: `${room.name} is blocked${room.blockedReason ? `: ${room.blockedReason}` : ""}.`,
+        };
+      case "OVERLAP":
+        return {
+          code: v.code,
+          message: `Overlaps "${v.booking.title}" (${formatTime(v.booking.start)}-${formatTime(v.booking.end)}).`,
+        };
     }
-  }
+  });
 
-  const available = canBook({ start, end, now, blocked: room.blocked, bookings: room.bookings });
   return { available, issues };
 }
 
