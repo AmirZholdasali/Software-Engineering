@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MalformedInputError, canBook, evaluateBooking } from "./booking";
-import { ROOMS, checkAvailability } from "./App";
+import { ROOMS } from "./rooms";
+import { checkAvailability } from "./availability";
 
 // Fresh input for every test. Existing booking: 10:00-11:00 (600-660), "now" is 09:00 (540).
 const makeInput = (over: Record<string, unknown> = {}) => ({
