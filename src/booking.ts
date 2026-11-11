@@ -26,6 +26,14 @@ export function intervalsOverlap(aStart: number, aEnd: number, bStart: number, b
   return aStart < bEnd && bStart < aEnd;
 }
 
+/**
+ * AC4 back-to-back: two valid intervals that meet at exactly one endpoint (one ends the minute the
+ * other starts). Such intervals do not overlap, so they are allowed. Invalid intervals never touch.
+ */
+export function isTouching(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return isValidInterval(aStart, aEnd) && isValidInterval(bStart, bEnd) && (aEnd === bStart || bEnd === aStart);
+}
+
 export type BookingRequest<B extends BookingInterval = BookingInterval> = {
   start: number;
   end: number;

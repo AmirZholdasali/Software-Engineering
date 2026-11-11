@@ -21,7 +21,7 @@ npm run preview   # serve the production build (http://localhost:4173)
 
 ## Test and check
 ```bash
-npm test            # all automated tests (Vitest), 71 tests
+npm test            # all automated tests (Vitest), 80 tests
 npm run typecheck   # TypeScript, no emit
 npm run lint        # ESLint
 ```
@@ -30,7 +30,7 @@ npm run lint        # ESLint
 | File | Responsibility |
 |---|---|
 | `src/rooms.ts` | Room/booking/equipment types and the frozen room catalog |
-| `src/booking.ts` | Booking rules AC1-AC4 (`evaluateBooking`, `canBook`) |
+| `src/booking.ts` | Booking rules AC1-AC4 (`evaluateBooking`, `canBook`, `isTouching`) |
 | `src/filters.ts` | Room filters F1-F3, selection for F4/F5 |
 | `src/availability.ts` | Rule violations to messages, time/people parsing |
 | `src/App.tsx` | React state and rendering only |

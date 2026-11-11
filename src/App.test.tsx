@@ -60,4 +60,19 @@ describe("UI integration: App", () => {
     expect(screen.getByText("Enter the number of people as a whole number of at least 1.")).toBeTruthy();
     expect(verdict()).toBe("Available");
   });
+
+  it("shows the back-to-back note only for bookings that touch the request (AC4)", () => {
+    render(<App />);
+    // Default 11:00-12:00 in Aurora Lab 101 touches "Python workshop" (10:00-11:00).
+    expect(verdict()).toBe("Available");
+    expect(screen.getByText(/Back-to-back with "Python workshop" \(10:00-11:00\)/)).toBeTruthy();
+
+    type("Start", "10:59"); // one minute of overlap: Unavailable, so no back-to-back note
+    expect(verdict()).toBe("Unavailable");
+    expect(screen.queryByText(/Back-to-back/)).toBeNull();
+
+    type("Start", "11:01"); // one minute gap: Available, but no longer touching
+    expect(verdict()).toBe("Available");
+    expect(screen.queryByText(/Back-to-back/)).toBeNull();
+  });
 });

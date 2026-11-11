@@ -26,7 +26,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import { MINUTES_PER_DAY, isValidInterval } from "./booking";
+import { MINUTES_PER_DAY, isTouching, isValidInterval } from "./booking";
 import { EQUIPMENT, ROOMS, type Equipment, type Room } from "./rooms";
 import { checkAvailability, formatTime, parsePeople, parseTime, type Decision } from "./availability";
 import { filterRooms, resolveSelection } from "./filters";
@@ -227,7 +227,7 @@ export default function App() {
 
   const touching =
     room !== null && decision?.available && start !== null && end !== null
-      ? room.bookings.filter((b) => b.end === start || b.start === end)
+      ? room.bookings.filter((b) => isTouching(start, end, b.start, b.end))
       : [];
 
   const setDuration = (minutes: number) => {
