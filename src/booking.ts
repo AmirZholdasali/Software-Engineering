@@ -27,25 +27,96 @@ export function intervalsOverlap(aStart: number, aEnd: number, bStart: number, b
 }
 
 /**
- * True if the room can be booked for [start, end): valid interval, start strictly after `now`,
- * at most 120 minutes, room not blocked, no overlap with existing bookings.
+ * AC4 back-to-back: two valid intervals that meet at exactly one endpoint (one ends the minute the
+ * other starts). Such intervals do not overlap, so they are allowed. Invalid intervals never touch.
  */
-export function canBook({
-  start,
-  end,
-  now,
-  blocked,
-  bookings,
-}: {
+export function isTouching(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return isValidInterval(aStart, aEnd) && isValidInterval(bStart, bEnd) && (aEnd === bStart || bEnd === aStart);
+}
+
+export type BookingRequest<B extends BookingInterval = BookingInterval> = {
   start: number;
   end: number;
   now: number;
   blocked: boolean;
-  bookings: readonly BookingInterval[];
-}): boolean {
-  if (!isValidInterval(start, end)) return false;
-  if (start <= now) return false;
-  if (end - start > MAX_BOOKING_MINUTES) return false;
-  if (blocked) return false;
-  return !bookings.some((b) => intervalsOverlap(start, end, b.start, b.end));
+  bookings: readonly B[];
+};
+
+/** Which rule a request breaks. OVERLAP carries the existing booking it collides with. */
+export type Violation<B extends BookingInterval = BookingInterval> =
+  | { readonly code: "INVALID_RANGE" | "IN_PAST" | "TOO_LONG" | "ROOM_BLOCKED" }
+  | { readonly code: "OVERLAP"; readonly booking: B };
+
+export type Evaluation<B extends BookingInterval = BookingInterval> = {
+  readonly available: boolean;
+  readonly violations: Violation<B>[];
+};
+
+/** Thrown for input that is not a booking request at all (as opposed to a request that breaks a rule). */
+export class MalformedInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MalformedInputError";
+  }
+}
+
+/**
+ * Rejects data the rules cannot reason about. `start`/`end` are NOT checked here: a bad interval
+ * is the user's mistake and is reported as an INVALID_RANGE violation instead.
+ */
+function assertWellFormed(input: BookingRequest<BookingInterval>): void {
+  if (typeof input !== "object" || input === null) {
+    throw new MalformedInputError("booking request must be an object");
+  }
+  const { now, blocked, bookings } = input;
+  if (!Number.isInteger(now) || now < 0 || now > MINUTES_PER_DAY) {
+    throw new MalformedInputError(`now must be a whole number of minutes in 0..${MINUTES_PER_DAY}, got ${String(now)}`);
+  }
+  if (typeof blocked !== "boolean") {
+    throw new MalformedInputError(`blocked must be a boolean, got ${String(blocked)}`);
+  }
+  if (!Array.isArray(bookings)) {
+    throw new MalformedInputError("bookings must be an array");
+  }
+  bookings.forEach((b, i) => {
+    if (typeof b !== "object" || b === null || !isValidInterval(b.start, b.end)) {
+      throw new MalformedInputError(`bookings[${i}] must be a valid { start, end } interval`);
+    }
+  });
+}
+
+/**
+ * Single source of truth for the booking rules (AC1-AC4). Pure: reads its argument, never mutates
+ * it, and returns every rule the request breaks, in a stable order. Available means "no violations".
+ * Throws MalformedInputError if `now`, `blocked` or `bookings` are not usable data.
+ */
+export function evaluateBooking<B extends BookingInterval>(input: BookingRequest<B>): Evaluation<B> {
+  assertWellFormed(input);
+  const { start, end, now, blocked, bookings } = input;
+  const violations: Violation<B>[] = [];
+
+  const validInterval = isValidInterval(start, end);
+  if (!validInterval) violations.push({ code: "INVALID_RANGE" });
+  if (start <= now) violations.push({ code: "IN_PAST" });
+
+  // The remaining rules only make sense for a well-formed interval.
+  if (validInterval) {
+    if (end - start > MAX_BOOKING_MINUTES) violations.push({ code: "TOO_LONG" });
+    if (blocked) violations.push({ code: "ROOM_BLOCKED" });
+    for (const booking of bookings) {
+      if (intervalsOverlap(start, end, booking.start, booking.end)) {
+        violations.push({ code: "OVERLAP", booking });
+      }
+    }
+  }
+
+  return { available: violations.length === 0, violations };
+}
+
+/**
+ * True if the room can be booked for [start, end): valid interval, start strictly after `now`,
+ * at most 120 minutes, room not blocked, no overlap with existing bookings.
+ */
+export function canBook(input: BookingRequest): boolean {
+  return evaluateBooking(input).available;
 }

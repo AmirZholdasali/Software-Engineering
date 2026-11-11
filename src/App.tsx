@@ -1,18 +1,18 @@
 /**
- * Smart Campus Room Availability Checker  (Practice Work #06 prototype)
+ * Smart Campus Room Availability Checker  (Assignment #04)
  *
- * Single-file React + TypeScript component. Tailwind CSS for styling, Lucide for icons.
+ * UI only: state, filtering inputs and rendering. Tailwind CSS for styling, Lucide for icons.
  * No login, no database, no backend: all rooms and bookings are fictional sample data.
  *
- * Time model: every time is an integer number of minutes after 00:00 (0..1440).
+ *   rooms.ts ......... frozen room catalog (types + data)
+ *   booking.ts ....... booking rules AC1-AC4 (evaluateBooking)
+ *   availability.ts .. violations -> messages, time/people parsing
+ *   filters.ts ....... room filters F1-F3, selection F4/F5
  *
  * Acceptance criteria -> where they are implemented
- *   AC1  valid interval + start in the future ... isValidInterval(), checkAvailability() [INVALID_RANGE, IN_PAST]
- *   AC2  max 120 minutes ...................... checkAvailability() [TOO_LONG]
- *   AC3  blocked room ......................... checkAvailability() [ROOM_BLOCKED]
- *   AC4  overlap, touching endpoints allowed ... intervalsOverlap() (strict < comparisons)
- *   AC5  Available / Unavailable, no mutation .. frozen ROOMS + pure checkAvailability() + derived state
- *   AC6  responsive layout + clear errors ...... Tailwind grid classes, TimeField error messages
+ *   AC1-AC4  booking.ts evaluateBooking(), messages in availability.ts checkAvailability()
+ *   AC5      frozen ROOMS + pure functions + derived state
+ *   AC6      responsive Tailwind grid, field error messages
  */
 import { useMemo, useState } from "react";
 import {
@@ -22,187 +22,21 @@ import {
   Clock,
   DoorOpen,
   RotateCcw,
+  SearchX,
   Users,
   XCircle,
 } from "lucide-react";
-import {
-  MINUTES_PER_DAY,
-  MAX_BOOKING_MINUTES,
-  isValidInterval,
-  intervalsOverlap,
-  canBook,
-} from "./booking";
+import { MINUTES_PER_DAY, isTouching, isValidInterval } from "./booking";
+import { EQUIPMENT, ROOMS, type Equipment, type Room } from "./rooms";
+import { checkAvailability, formatTime, parsePeople, parseTime, type Decision } from "./availability";
+import { filterRooms, resolveSelection } from "./filters";
 
-/* ============================ 1. Types ============================ */
-
-export type Booking = {
-  readonly id: string;
-  readonly title: string;
-  readonly start: number; // minutes from 00:00
-  readonly end: number; // minutes from 00:00
-};
-
-export type Room = {
-  readonly id: string;
-  readonly name: string;
-  readonly kind: string;
-  readonly capacity: number;
-  readonly blocked: boolean;
-  readonly blockedReason?: string;
-  readonly bookings: readonly Booking[];
-};
-
-export type IssueCode =
-  | "INVALID_RANGE"
-  | "IN_PAST"
-  | "TOO_LONG"
-  | "ROOM_BLOCKED"
-  | "OVERLAP";
-
-export type Issue = { code: IssueCode; message: string };
-export type Decision = { available: boolean; issues: Issue[] };
-
-/* ====================== 2. Constants & sample data ====================== */
-
-export { MINUTES_PER_DAY, MAX_BOOKING_MINUTES, isValidInterval, intervalsOverlap, canBook };
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    Object.values(value as object).forEach(deepFreeze);
-  }
-  return value;
-}
-
-// Frozen on purpose: checking availability must never change this data (AC5).
-export const ROOMS: readonly Room[] = deepFreeze([
-  {
-    id: "lab-101",
-    name: "Aurora Lab 101",
-    kind: "Computer lab",
-    capacity: 30,
-    blocked: false,
-    bookings: [
-      { id: "b1", title: "Algorithms lab", start: 540, end: 600 }, // 09:00-10:00
-      { id: "b2", title: "Python workshop", start: 600, end: 660 }, // 10:00-11:00
-      { id: "b3", title: "Robotics club", start: 840, end: 930 }, // 14:00-15:30
-    ],
-  },
-  {
-    id: "hall-b204",
-    name: "Hall B-204",
-    kind: "Lecture hall",
-    capacity: 120,
-    blocked: false,
-    bookings: [
-      { id: "b4", title: "Databases lecture", start: 480, end: 570 }, // 08:00-09:30
-      { id: "b5", title: "Software design", start: 720, end: 810 }, // 12:00-13:30
-      { id: "b6", title: "Guest talk", start: 1020, end: 1140 }, // 17:00-19:00
-    ],
-  },
-  {
-    id: "studio-c012",
-    name: "Studio C-012",
-    kind: "Design studio",
-    capacity: 24,
-    blocked: true,
-    blockedReason: "projector repair in progress",
-    bookings: [{ id: "b7", title: "UX critique", start: 780, end: 840 }], // 13:00-14:00
-  },
-  {
-    id: "sem-d305",
-    name: "Seminar D-305",
-    kind: "Seminar room",
-    capacity: 12,
-    blocked: false,
-    bookings: [
-      { id: "b8", title: "Thesis meeting", start: 600, end: 660 }, // 10:00-11:00
-      { id: "b9", title: "Reading group", start: 840, end: 900 }, // 14:00-15:00
-    ],
-  },
-]);
-
-const DEFAULTS = { roomId: "lab-101", now: "08:00", start: "11:00", end: "12:00" };
-
-/* ======================= 3. Pure helper functions ======================= */
-
-/** "HH:MM" -> minutes. Accepts 00:00..24:00. Returns null if the text is not a valid time. */
-export function parseTime(text: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (minutes > 59 || hours > 24) return null;
-  if (hours === 24 && minutes !== 0) return null; // only 24:00 itself is allowed
-  return hours * 60 + minutes;
-}
-
-/** minutes -> "HH:MM" */
-export function formatTime(total: number): string {
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-/**
- * Applies AC1-AC4 to one request. Pure function: it only reads its arguments,
- * never changes them, and returns a fresh result object (AC5).
- */
-export function checkAvailability(room: Room, start: number, end: number, now: number): Decision {
-  const issues: Issue[] = [];
-
-  // AC1: valid interval, and it must start strictly after the current time
-  const validInterval = isValidInterval(start, end);
-  if (!validInterval) {
-    issues.push({
-      code: "INVALID_RANGE",
-      message: `Start (${formatTime(start)}) must be earlier than end (${formatTime(end)}), and both must be between 00:00 and 24:00.`,
-    });
-  }
-  if (start <= now) {
-    issues.push({
-      code: "IN_PAST",
-      message: `Start (${formatTime(start)}) must be later than the current time (${formatTime(now)}).`,
-    });
-  }
-
-  // The remaining rules only make sense for a well-formed interval.
-  if (!validInterval) return { available: false, issues };
-
-  // AC2: maximum 120 minutes
-  const duration = end - start;
-  if (duration > MAX_BOOKING_MINUTES) {
-    issues.push({
-      code: "TOO_LONG",
-      message: `Bookings can last at most ${MAX_BOOKING_MINUTES} minutes. This request is ${duration} minutes.`,
-    });
-  }
-
-  // AC3: blocked room
-  if (room.blocked) {
-    issues.push({
-      code: "ROOM_BLOCKED",
-      message: `${room.name} is blocked${room.blockedReason ? `: ${room.blockedReason}` : ""}.`,
-    });
-  }
-
-  // AC4: overlap with any existing booking (touching endpoints are fine)
-  for (const booking of room.bookings) {
-    if (intervalsOverlap(start, end, booking.start, booking.end)) {
-      issues.push({
-        code: "OVERLAP",
-        message: `Overlaps "${booking.title}" (${formatTime(booking.start)}-${formatTime(booking.end)}).`,
-      });
-    }
-  }
-
-  const available = canBook({ start, end, now, blocked: room.blocked, bookings: room.bookings });
-  return { available, issues };
-}
+const DEFAULTS = { roomId: "lab-101", now: "08:00", start: "11:00", end: "12:00", people: "1" };
 
 /* ========================= 4. Small UI pieces ========================= */
 
 const TIME_ERROR = "Enter a time as HH:MM, for example 09:30 (use 24:00 for midnight).";
+const PEOPLE_ERROR = "Enter the number of people as a whole number of at least 1.";
 
 function TimeField(props: {
   id: string;
@@ -210,8 +44,10 @@ function TimeField(props: {
   value: string;
   onChange: (value: string) => void;
   error: string | null;
+  placeholder?: string;
+  inputMode?: "text" | "numeric";
 }) {
-  const { id, label, value, onChange, error } = props;
+  const { id, label, value, onChange, error, placeholder = "HH:MM", inputMode = "text" } = props;
   return (
     <div>
       <label htmlFor={id} className="block text-sm font-medium text-slate-800">
@@ -222,7 +58,8 @@ function TimeField(props: {
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="HH:MM"
+        placeholder={placeholder}
+        inputMode={inputMode}
         maxLength={5}
         autoComplete="off"
         spellCheck={false}
@@ -349,13 +186,23 @@ function Timeline(props: { room: Room; candidate: Candidate | null; now: number 
 /* ============================ 5. Main component ============================ */
 
 export default function App() {
-  // The only state: four raw inputs. Everything else is derived on each render.
+  // The only state: raw inputs. Everything else is derived on each render.
   const [roomId, setRoomId] = useState(DEFAULTS.roomId);
   const [nowText, setNowText] = useState(DEFAULTS.now);
   const [startText, setStartText] = useState(DEFAULTS.start);
   const [endText, setEndText] = useState(DEFAULTS.end);
+  const [peopleText, setPeopleText] = useState(DEFAULTS.people);
+  const [equipment, setEquipment] = useState<readonly Equipment[]>([]);
 
-  const room = ROOMS.find((r) => r.id === roomId) ?? ROOMS[0];
+  const people = parsePeople(peopleText);
+
+  // F1-F3. While the people field is invalid, capacity is not filtered (the field shows an error).
+  const results = useMemo(
+    () => filterRooms(ROOMS, { minCapacity: people ?? 0, equipment }),
+    [people, equipment],
+  );
+  // F5: keep the chosen room while it matches, otherwise the first match. Null -> empty state (F4).
+  const room = resolveSelection(results, roomId);
 
   const now = parseTime(nowText);
   const start = parseTime(startText);
@@ -365,11 +212,13 @@ export default function App() {
     now: now === null ? TIME_ERROR : null,
     start: start === null ? TIME_ERROR : null,
     end: end === null ? TIME_ERROR : null,
+    people: people === null ? PEOPLE_ERROR : null,
   };
 
-  // Recomputed only when an input changes. checkAvailability is pure, so ROOMS is never touched.
+  // Recomputed only when an input or the selected room changes. checkAvailability is pure, so ROOMS is never touched.
   const decision: Decision | null = useMemo(
-    () => (now !== null && start !== null && end !== null ? checkAvailability(room, start, end, now) : null),
+    () =>
+      room !== null && now !== null && start !== null && end !== null ? checkAvailability(room, start, end, now) : null,
     [room, now, start, end],
   );
 
@@ -377,19 +226,25 @@ export default function App() {
     start !== null && end !== null && isValidInterval(start, end) ? { start, end } : null;
 
   const touching =
-    decision?.available && start !== null && end !== null
-      ? room.bookings.filter((b) => b.end === start || b.start === end)
+    room !== null && decision?.available && start !== null && end !== null
+      ? room.bookings.filter((b) => isTouching(start, end, b.start, b.end))
       : [];
 
   const setDuration = (minutes: number) => {
     if (start !== null && start + minutes <= MINUTES_PER_DAY) setEndText(formatTime(start + minutes));
   };
 
+  // Always builds a new array: the previous selection is never changed in place.
+  const toggleEquipment = (item: Equipment) =>
+    setEquipment((current) => (current.includes(item) ? current.filter((e) => e !== item) : [...current, item]));
+
   const reset = () => {
     setRoomId(DEFAULTS.roomId);
     setNowText(DEFAULTS.now);
     setStartText(DEFAULTS.start);
     setEndText(DEFAULTS.end);
+    setPeopleText(DEFAULTS.people);
+    setEquipment([]);
   };
 
   return (
@@ -424,11 +279,49 @@ export default function App() {
             </button>
           </div>
 
+          <TimeField
+            id="people"
+            label="People"
+            value={peopleText}
+            onChange={setPeopleText}
+            error={errors.people}
+            placeholder="e.g. 20"
+            inputMode="numeric"
+          />
+
           <fieldset>
-            <legend className="mb-2 text-sm font-medium text-slate-800">Room</legend>
+            <legend className="mb-2 text-sm font-medium text-slate-800">Required equipment</legend>
+            <div className="flex flex-wrap gap-2">
+              {EQUIPMENT.map((item) => (
+                <label
+                  key={item.id}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-sm focus-within:ring-2 focus-within:ring-teal-300 hover:border-slate-400"
+                >
+                  <input
+                    type="checkbox"
+                    checked={equipment.includes(item.id)}
+                    onChange={() => toggleEquipment(item.id)}
+                    className="h-4 w-4 accent-teal-700"
+                  />
+                  {item.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-slate-800">
+              Room <span className="font-normal text-slate-600">({results.length} of {ROOMS.length} match)</span>
+            </legend>
+            {results.length === 0 && (
+              <p className="flex items-start gap-2 rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-600">
+                <SearchX className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                No rooms match these filters. Lower the number of people or clear some equipment.
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-              {ROOMS.map((r) => {
-                const selected = r.id === roomId;
+              {results.map((r) => {
+                const selected = r.id === room?.id;
                 return (
                   <label
                     key={r.id}
@@ -456,6 +349,9 @@ export default function App() {
                             <Ban className="h-3.5 w-3.5" aria-hidden="true" /> Blocked
                           </span>
                         )}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        {r.equipment.map((id) => EQUIPMENT.find((e) => e.id === id)?.label ?? id).join(" · ")}
                       </span>
                     </span>
                   </label>
@@ -492,77 +388,96 @@ export default function App() {
         {/* ---------- Result ---------- */}
         <section aria-labelledby="result-heading" className="space-y-5 lg:col-span-3">
           <h2 id="result-heading" className="text-base font-semibold">
-            Decision for {room.name}
+            {room ? `Decision for ${room.name}` : "Decision"}
           </h2>
 
-          <div
-            role="status"
-            aria-live="polite"
-            className={`rounded-xl border p-4 sm:p-5 ${
-              decision === null
-                ? "border-slate-300 bg-white"
-                : decision.available
-                  ? "border-emerald-300 bg-emerald-50"
-                  : "border-rose-300 bg-rose-50"
-            }`}
-          >
-            {decision === null && (
+          {/* F4: no room matches the filters, so there is nothing to decide. */}
+          {room === null && (
+            <div role="status" aria-live="polite" className="rounded-xl border border-slate-300 bg-white p-4 sm:p-5">
               <div className="flex items-start gap-3">
-                <Clock className="mt-0.5 h-7 w-7 shrink-0 text-slate-500" aria-hidden="true" />
+                <SearchX className="mt-0.5 h-7 w-7 shrink-0 text-slate-500" aria-hidden="true" />
                 <div>
-                  <p className="text-xl font-semibold text-slate-800">Waiting for valid times</p>
-                  <p className="mt-1 text-sm text-slate-600">Fix the highlighted fields to see a decision.</p>
-                </div>
-              </div>
-            )}
-
-            {decision?.available && start !== null && end !== null && (
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="mt-0.5 h-7 w-7 shrink-0 text-emerald-700" aria-hidden="true" />
-                <div>
-                  <p className="text-xl font-semibold text-emerald-900">Available</p>
-                  <p className="mt-1 text-sm text-emerald-900">
-                    {room.name} is free from {formatTime(start)} to {formatTime(end)} ({end - start} minutes).
+                  <p className="text-xl font-semibold text-slate-800">No matching rooms</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    No unblocked room has room for {people ?? "that many"} people and all the selected equipment.
                   </p>
-                  {touching.map((b) => (
-                    <p key={b.id} className="mt-1 text-sm text-emerald-900">
-                      Back-to-back with "{b.title}" ({formatTime(b.start)}-{formatTime(b.end)}). Touching times are allowed.
-                    </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {room !== null && (
+            <>
+              <div
+                role="status"
+                aria-live="polite"
+                className={`rounded-xl border p-4 sm:p-5 ${
+                  decision === null
+                    ? "border-slate-300 bg-white"
+                    : decision.available
+                      ? "border-emerald-300 bg-emerald-50"
+                      : "border-rose-300 bg-rose-50"
+                }`}
+              >
+                {decision === null && (
+                  <div className="flex items-start gap-3">
+                    <Clock className="mt-0.5 h-7 w-7 shrink-0 text-slate-500" aria-hidden="true" />
+                    <div>
+                      <p className="text-xl font-semibold text-slate-800">Waiting for valid times</p>
+                      <p className="mt-1 text-sm text-slate-600">Fix the highlighted fields to see a decision.</p>
+                    </div>
+                  </div>
+                )}
+    
+                {decision?.available && start !== null && end !== null && (
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-7 w-7 shrink-0 text-emerald-700" aria-hidden="true" />
+                    <div>
+                      <p className="text-xl font-semibold text-emerald-900">Available</p>
+                      <p className="mt-1 text-sm text-emerald-900">
+                        {room.name} is free from {formatTime(start)} to {formatTime(end)} ({end - start} minutes).
+                      </p>
+                      {touching.map((b) => (
+                        <p key={b.id} className="mt-1 text-sm text-emerald-900">
+                          Back-to-back with "{b.title}" ({formatTime(b.start)}-{formatTime(b.end)}). Touching times are allowed.
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+    
+                {decision && !decision.available && (
+                  <div className="flex items-start gap-3">
+                    <XCircle className="mt-0.5 h-7 w-7 shrink-0 text-rose-700" aria-hidden="true" />
+                    <div>
+                      <p className="text-xl font-semibold text-rose-900">Unavailable</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">
+                        {decision.issues.map((issue, i) => (
+                          <li key={`${issue.code}-${i}`}>{issue.message}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+    
+              <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                <h3 className="mb-3 text-sm font-semibold">Today in {room.name}</h3>
+                <Timeline room={room} candidate={candidate} now={now} available={decision ? decision.available : null} />
+    
+                <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100 text-sm">
+                  {room.bookings.map((b) => (
+                    <li key={b.id} className="flex justify-between gap-3 py-2">
+                      <span>{b.title}</span>
+                      <span className="tabular-nums text-slate-600">
+                        {formatTime(b.start)}-{formatTime(b.end)}
+                      </span>
+                    </li>
                   ))}
-                </div>
+                </ul>
               </div>
-            )}
-
-            {decision && !decision.available && (
-              <div className="flex items-start gap-3">
-                <XCircle className="mt-0.5 h-7 w-7 shrink-0 text-rose-700" aria-hidden="true" />
-                <div>
-                  <p className="text-xl font-semibold text-rose-900">Unavailable</p>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">
-                    {decision.issues.map((issue, i) => (
-                      <li key={`${issue.code}-${i}`}>{issue.message}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
-            <h3 className="mb-3 text-sm font-semibold">Today in {room.name}</h3>
-            <Timeline room={room} candidate={candidate} now={now} available={decision ? decision.available : null} />
-
-            <ul className="mt-4 divide-y divide-slate-100 border-t border-slate-100 text-sm">
-              {room.bookings.map((b) => (
-                <li key={b.id} className="flex justify-between gap-3 py-2">
-                  <span>{b.title}</span>
-                  <span className="tabular-nums text-slate-600">
-                    {formatTime(b.start)}-{formatTime(b.end)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+            </>
+          )}
 
           <p className="text-xs text-slate-500">
             Fictional sample data. Times are on a 24-hour clock for a single day. Checking a request never changes the bookings.

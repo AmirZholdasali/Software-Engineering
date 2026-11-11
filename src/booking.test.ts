@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canBook } from "./booking";
+import { canBook, intervalsOverlap, isTouching } from "./booking";
 
 // Fresh fixture for every test.
 const makeInput = (over: Record<string, unknown> = {}) => ({
@@ -84,5 +84,45 @@ describe("canBook", () => {
       expect(canBook(input)).toBe(false);
       expect(JSON.stringify(input.bookings)).toBe(before);
     });
+  });
+});
+
+describe("isTouching (AC4 back-to-back, single source of truth for the UI note)", () => {
+  // Existing booking: 600-660 (10:00-11:00).
+  it("starts exactly when the booking ends (660-720) -> true", () => {
+    expect(isTouching(660, 720, 600, 660)).toBe(true);
+  });
+  it("ends exactly when the booking starts (540-600) -> true", () => {
+    expect(isTouching(540, 600, 600, 660)).toBe(true);
+  });
+  it("one minute gap on either side -> false", () => {
+    expect(isTouching(661, 720, 600, 660)).toBe(false);
+    expect(isTouching(540, 599, 600, 660)).toBe(false);
+  });
+  it("one minute of overlap on either side -> false", () => {
+    expect(isTouching(659, 720, 600, 660)).toBe(false);
+    expect(isTouching(540, 601, 600, 660)).toBe(false);
+  });
+  it("identical, covering and inside intervals -> false", () => {
+    expect(isTouching(600, 660, 600, 660)).toBe(false);
+    expect(isTouching(570, 690, 600, 660)).toBe(false);
+    expect(isTouching(615, 645, 600, 660)).toBe(false);
+  });
+  it("is symmetric", () => {
+    expect(isTouching(600, 660, 660, 720)).toBe(isTouching(660, 720, 600, 660));
+    expect(isTouching(600, 660, 630, 690)).toBe(isTouching(630, 690, 600, 660));
+  });
+  it("invalid intervals never touch (empty, reversed, out of range, fractional)", () => {
+    expect(isTouching(660, 660, 600, 660)).toBe(false);
+    expect(isTouching(660, 600, 600, 660)).toBe(false);
+    expect(isTouching(1380, 1441, 1441, 1500)).toBe(false);
+    expect(isTouching(660.5, 720, 600, 660.5)).toBe(false);
+  });
+  it("a pair never both touches and overlaps (checked on a grid of requests)", () => {
+    for (let aStart = 540; aStart <= 720; aStart += 30) {
+      for (let aEnd = aStart + 30; aEnd <= 780; aEnd += 30) {
+        expect(isTouching(aStart, aEnd, 600, 660) && intervalsOverlap(aStart, aEnd, 600, 660)).toBe(false);
+      }
+    }
   });
 });

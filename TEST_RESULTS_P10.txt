@@ -1,0 +1,97 @@
+Practice Work #10 - verification output (raw)
+Date:      2026-11-11T12:55:24+05:00
+Branch:    audit/practice-work-10  base commit 25a5f6c (run on the working tree that was then committed as the Phase 3 mitigation commit)
+Toolchain: node v24.13.1, npm 11.8.0
+Note:      output is unedited except that the absolute project path is replaced by <repo> (privacy, risk R-06).
+
+================================================================
+$ npm test
+================================================================
+
+> vite-react-typescript-starter@0.0.0 test
+> vitest run
+
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/booking.test.ts (24 tests) 8ms
+ ✓ src/filters.test.ts (19 tests) 10ms
+ ✓ src/regression.test.ts (32 tests) 124ms
+ ✓ src/App.test.tsx (5 tests) 321ms
+
+ Test Files  4 passed (4)
+      Tests  80 passed (80)
+   Start at  12:55:26
+   Duration  3.64s (transform 206ms, setup 0ms, collect 742ms, tests 463ms, environment 1.28s, prepare 1.01s)
+
+[exit code: 0]
+
+================================================================
+$ npm run lint
+================================================================
+
+> vite-react-typescript-starter@0.0.0 lint
+> eslint .
+
+[exit code: 0]
+
+================================================================
+$ npm run typecheck
+================================================================
+
+> vite-react-typescript-starter@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.app.json
+
+[exit code: 0]
+
+================================================================
+$ npm run build
+================================================================
+
+> vite-react-typescript-starter@0.0.0 build
+> vite build
+
+vite v5.4.8 building for production...
+transforming...
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 1572 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.65 kB │ gzip:  0.36 kB
+dist/assets/index-D15OwY4W.css   14.32 kB │ gzip:  3.43 kB
+dist/assets/index-BsmAwH5M.js   163.22 kB │ gzip: 52.15 kB
+✓ built in 2.95s
+[exit code: 0]
+
+################ ADDITIONAL EVIDENCE (R-04, R-07, R-10, R-11) ################
+================================================================
+$ npm ls @supabase/supabase-js
+================================================================
+vite-react-typescript-starter@0.0.0 <repo>
+└── (empty)
+
+[exit code: 1]
+
+================================================================
+$ npm audit --omit=dev
+================================================================
+found 0 vulnerabilities
+[exit code: 0]
+
+================================================================
+$ npx tsc --noEmit -p tsconfig.node.json
+================================================================
+[exit code: 0]
+
+================================================================
+$ npm audit   (all dependencies, summary line only)
+================================================================
+25 vulnerabilities (2 low, 7 moderate, 14 high, 2 critical)
+[exit code: 1]  (non-zero = findings exist; all remaining ones are dev/build tooling, see AUDIT_REPORT.md R-11)
+
+================================================================
+$ git grep -n -E "b\.end === start|b\.start === end" -- src/App.tsx
+================================================================
+[exit code: 1]  (1 = no match: the duplicated touching logic is gone from App.tsx)

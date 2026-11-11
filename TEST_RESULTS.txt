@@ -1,0 +1,17 @@
+
+> vite-react-typescript-starter@0.0.0 test
+> vitest run
+
+
+ RUN  v2.1.9 C:/Users/Мой Компьютер/Desktop/project
+
+ ✓ src/booking.test.ts (16 tests) 3ms
+ ✓ src/filters.test.ts (19 tests) 8ms
+ ✓ src/regression.test.ts (32 tests) 94ms
+ ✓ src/App.test.tsx (4 tests) 220ms
+
+ Test Files  4 passed (4)
+      Tests  71 passed (71)
+   Start at  17:42:00
+   Duration  1.87s (transform 174ms, setup 0ms, collect 513ms, tests 325ms, environment 822ms, prepare 602ms)
+
