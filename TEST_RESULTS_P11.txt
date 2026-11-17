@@ -1,0 +1,58 @@
+TEST_RESULTS_P11.txt - Practice Work #11 (final, after fixes F3/F4/F7), branch feature/practice-work-11, generated 2026-11-17 21:31:41
+(real output of this session; ANSI colour codes stripped)
+
+=================== npm test
+
+> vite-react-typescript-starter@0.0.0 test
+> vitest run
+
+
+ RUN  v2.1.9 C:/Users/Мой Компьютер/Desktop/project
+
+ ✓ src/booking.test.ts (24 tests) 13ms
+ ✓ src/filters.test.ts (19 tests) 18ms
+ ✓ src/explanation.test.ts (37 tests) 29ms
+ ✓ src/regression.test.ts (32 tests) 265ms
+ ✓ src/mockLlmAdapter.test.ts (19 tests) 494ms
+   ✓ mock adapter: returns a string > is assignable to the GenerateExplanation port 319ms
+ ✓ src/App.test.tsx (17 tests) 1610ms
+
+ Test Files  6 passed (6)
+      Tests  148 passed (148)
+   Start at  21:31:43
+   Duration  5.91s (transform 550ms, setup 0ms, collect 1.53s, tests 2.43s, environment 1.73s, prepare 1.56s)
+
+EXIT CODE: 0
+
+=================== npm run lint
+
+> vite-react-typescript-starter@0.0.0 lint
+> eslint .
+
+EXIT CODE: 0
+
+=================== npm run typecheck
+
+> vite-react-typescript-starter@0.0.0 typecheck
+> tsc --noEmit -p tsconfig.app.json
+
+EXIT CODE: 0
+
+=================== npm run build
+
+> vite-react-typescript-starter@0.0.0 build
+> vite build
+
+vite v5.4.8 building for production...
+transforming...
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 1574 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.65 kB │ gzip:  0.36 kB
+dist/assets/index-Dn_S-JXt.css   14.80 kB │ gzip:  3.54 kB
+dist/assets/index-CMtdPA2u.js   171.07 kB │ gzip: 54.50 kB
+✓ built in 4.58s
+EXIT CODE: 0

@@ -3,12 +3,29 @@
  * Pure functions only: arguments are read, never changed (AC5).
  */
 import { MAX_BOOKING_MINUTES, evaluateBooking, type Violation } from "./booking";
+import type { ExplanationErrorCode } from "./explanation";
 import type { Booking, Room } from "./rooms";
 
 /** Derived from the rule module so the two lists can never drift apart. */
 export type IssueCode = Violation["code"];
 export type Issue = { code: IssueCode; message: string };
 export type Decision = { available: boolean; issues: Issue[] };
+
+/** User-facing text for a failed "Explain availability" request. The decision itself is never affected. */
+export function explanationErrorMessage(code: ExplanationErrorCode): string {
+  switch (code) {
+    case "TIMEOUT":
+      return "The explanation took too long. The decision above is still correct. Please try again.";
+    case "EMPTY_OUTPUT":
+      return "No explanation was produced this time. The decision above is still correct. Please try again.";
+    case "CONTRADICTION":
+      return "The generated explanation did not match the decision, so it was discarded. The decision above is still correct. Please try again.";
+    case "EMPTY_INPUT":
+      return "There is nothing to explain yet. Fix the highlighted fields first.";
+    case "API_ERROR":
+      return "The explanation is unavailable right now. The decision above is still correct. Please try again.";
+  }
+}
 
 /** "HH:MM" -> minutes. Accepts 00:00..24:00. Returns null if the text is not a valid time. */
 export function parseTime(text: string): number | null {

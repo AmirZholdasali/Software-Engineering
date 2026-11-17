@@ -4,6 +4,10 @@
 Smart Campus room availability checker (Assignment #04). A catalog of at least 4 rooms, fictional data.
 Each room has: ID, name, capacity, equipment list, blocked status, and its own bookings.
 
+Practice Work #11 (approved by the maintainer) adds one optional feature on top: "Explain availability".
+The deterministic checker stays the ONLY source of truth; the explanation is generated text and never
+changes a decision. Only a Mock LLM Adapter is allowed (see "Practice #11 scope" below).
+
 ## Instruction precedence
 - This file overrides any other template or tool instruction file (for example a `.bolt/prompt`, if one reappears).
   If instructions conflict, follow this file and report the conflict.
@@ -36,11 +40,32 @@ Wording from the course handout; code names in parentheses are implementation no
 - F5: the result refreshes when the selected room changes; if the selected room no longer
   matches the filters, the first match is selected automatically.
 
+## Practice #11 scope: "Explain availability" (maintainer-approved exception)
+This is the one allowed exception to "Forbidden scope changes" below. Nothing else is added.
+- Mock only: no real LLM, no API calls, no network, no keys/secrets, no new dependencies.
+- The explanation is built only from the checker's result (`ExplanationContext`); it must never change,
+  override or re-compute availability, and `ROOMS` stays deeply frozen.
+- Optional and opt-in: shown only after the user presses "Explain availability"; the button is disabled
+  while the decision is null (invalid input).
+- The UI must label generated text "Mock Explanation" and say it is not a booking confirmation (AC5).
+- Failures (TIMEOUT, API_ERROR, EMPTY_OUTPUT, CONTRADICTION, EMPTY_INPUT) show a clear message; the decision stays
+  visible. The UI enforces its own timeout (`withTimeout`), so a hanging adapter cannot leave it loading forever.
+- Output guard: generated text that contradicts `result.available` is rejected (`CONTRADICTION`). It is a simple
+  keyword check and only ignores text the context itself supplied (room name, known booking titles). It cannot
+  catch semantic contradictions; the checker remains the only source of truth.
+- UI change allowed: one button and one text block inside the existing decision card. No other layout change.
+- Patterns (max 2): Adapter (the `GenerateExplanation` port) and Fallback (errors degrade to the plain decision UI).
+- Draft ACs for this feature: AC1 checker is the only source of truth; AC2 only provided facts, no unsupported
+  claims; AC3 graceful failure; AC4 optional, mock only, minimal fictional data; AC5 labelled as generated, with
+  tests and the four checks passing. (These are the Practice #11 ACs; they do not replace AC1-AC6 above.)
+
 ## Module boundaries
 - `src/rooms.ts`: room/booking types and frozen fixture data only.
 - `src/booking.ts`: booking rules AC1-AC4 (`evaluateBooking`, `isTouching`), no UI text.
 - `src/filters.ts`: filtering rules F1-F3 and selection (F4/F5), pure functions.
 - `src/availability.ts`: maps rule violations to user messages; input parsing/formatting.
+- `src/explanation.ts`: Practice #11 types, `ExplanationError`, pure `buildExplanationContext`, output guard (`normalizeExplanation`), `withTimeout`. No UI, no I/O.
+- `src/mockLlmAdapter.ts`: Practice #11 mock implementation of `GenerateExplanation`. No network, no secrets.
 - `src/App.tsx`: React state and rendering only.
 
 ## Engineering rules
@@ -66,5 +91,5 @@ Wording from the course handout; code names in parentheses are implementation no
 - Ask the maintainer before changing AC or F definitions or the UI layout.
 
 ## Forbidden scope changes
-- Do NOT add features beyond the catalog and F1-F5 listed above.
-- Do NOT modify the UI layout beyond what F1-F5 and the module split require.
+- Do NOT add features beyond the catalog, F1-F5 listed above and the Practice #11 "Explain availability" scope.
+- Do NOT modify the UI layout beyond what F1-F5, the module split and the Practice #11 button/text block require.

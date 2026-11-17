@@ -8,28 +8,57 @@
  *   booking.ts ....... booking rules AC1-AC4 (evaluateBooking)
  *   availability.ts .. violations -> messages, time/people parsing
  *   filters.ts ....... room filters F1-F3, selection F4/F5
+ *   explanation.ts ... Practice #11: explanation types, context builder (pure)
+ *   mockLlmAdapter.ts  Practice #11: mock text generator behind the GenerateExplanation port
  *
  * Acceptance criteria -> where they are implemented
  *   AC1-AC4  booking.ts evaluateBooking(), messages in availability.ts checkAvailability()
  *   AC5      frozen ROOMS + pure functions + derived state
  *   AC6      responsive Tailwind grid, field error messages
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Ban,
   CheckCircle2,
   Clock,
   DoorOpen,
+  Loader2,
   RotateCcw,
   SearchX,
+  Sparkles,
   Users,
   XCircle,
 } from "lucide-react";
 import { MINUTES_PER_DAY, isTouching, isValidInterval } from "./booking";
 import { EQUIPMENT, ROOMS, type Equipment, type Room } from "./rooms";
-import { checkAvailability, formatTime, parsePeople, parseTime, type Decision } from "./availability";
+import {
+  checkAvailability,
+  explanationErrorMessage,
+  formatTime,
+  parsePeople,
+  parseTime,
+  type Decision,
+} from "./availability";
 import { filterRooms, resolveSelection } from "./filters";
+import {
+  ExplanationError,
+  buildExplanationContext,
+  normalizeExplanation,
+  withTimeout,
+  type ExplanationErrorCode,
+  type GenerateExplanation,
+} from "./explanation";
+import { generateExplanation } from "./mockLlmAdapter";
+
+/** Practice #11: the explanation is tied to the exact request it was generated for (`key`). */
+type ExplainState =
+  | { key: string; status: "loading" }
+  | { key: string; status: "done"; text: string }
+  | { key: string; status: "error"; code: ExplanationErrorCode };
+
+/** Longest the UI waits for an explanation. Above the mock adapter's own 5 s limit, so the adapter reports first. */
+const EXPLAIN_TIMEOUT_MS = 8000;
 
 const DEFAULTS = { roomId: "lab-101", now: "08:00", start: "11:00", end: "12:00", people: "1" };
 
@@ -185,14 +214,23 @@ function Timeline(props: { room: Room; candidate: Candidate | null; now: number 
 
 /* ============================ 5. Main component ============================ */
 
-export default function App() {
-  // The only state: raw inputs. Everything else is derived on each render.
+export default function App({
+  explain = generateExplanation,
+  explainTimeoutMs = EXPLAIN_TIMEOUT_MS,
+}: { explain?: GenerateExplanation; explainTimeoutMs?: number } = {}) {
+  // State: raw inputs, plus the state of the optional "Explain availability" request.
+  // Everything else is derived on each render.
   const [roomId, setRoomId] = useState(DEFAULTS.roomId);
   const [nowText, setNowText] = useState(DEFAULTS.now);
   const [startText, setStartText] = useState(DEFAULTS.start);
   const [endText, setEndText] = useState(DEFAULTS.end);
   const [peopleText, setPeopleText] = useState(DEFAULTS.people);
   const [equipment, setEquipment] = useState<readonly Equipment[]>([]);
+  const [explainState, setExplainState] = useState<ExplainState | null>(null);
+  const explainAbort = useRef<AbortController | null>(null);
+
+  // Stop any pending explanation request when the component goes away.
+  useEffect(() => () => explainAbort.current?.abort(), []);
 
   const people = parsePeople(peopleText);
 
@@ -229,6 +267,34 @@ export default function App() {
     room !== null && decision?.available && start !== null && end !== null
       ? room.bookings.filter((b) => isTouching(start, end, b.start, b.end))
       : [];
+
+  // Practice #11: input for the (mock) explanation. Null while the decision is null (invalid input).
+  const explainContext = useMemo(
+    () => buildExplanationContext(room, { start, end, now, people }, decision),
+    [room, start, end, now, people, decision],
+  );
+  const explainKey = explainContext === null ? null : JSON.stringify(explainContext);
+  // Shown only while it still belongs to the current request; changing any input hides a stale explanation.
+  const explanation = explainKey !== null && explainState?.key === explainKey ? explainState : null;
+
+  const requestExplanation = async () => {
+    if (explainContext === null || explainKey === null) return;
+    explainAbort.current?.abort();
+    const controller = new AbortController();
+    explainAbort.current = controller;
+    setExplainState({ key: explainKey, status: "loading" });
+    try {
+      // App-level limit: an adapter that never answers must not leave the UI loading forever.
+      const raw = await withTimeout(explain(explainContext, { signal: controller.signal }), explainTimeoutMs);
+      const text = normalizeExplanation(raw, explainContext);
+      if (!controller.signal.aborted) setExplainState({ key: explainKey, status: "done", text });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const code = error instanceof ExplanationError ? error.code : "API_ERROR";
+      setExplainState({ key: explainKey, status: "error", code });
+      if (code === "TIMEOUT") controller.abort(); // tell the adapter to stop; its late answer is ignored
+    }
+  };
 
   const setDuration = (minutes: number) => {
     if (start !== null && start + minutes <= MINUTES_PER_DAY) setEndText(formatTime(start + minutes));
@@ -459,6 +525,46 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {/* Practice #11: optional, generated text. The decision above stays the only confirmed result. */}
+                <div className="mt-4 border-t border-slate-300/60 pt-4" aria-busy={explanation?.status === "loading"}>
+                  <button
+                    type="button"
+                    onClick={requestExplanation}
+                    disabled={explainContext === null || explanation?.status === "loading"}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-400 bg-white px-3 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-300 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                  >
+                    {explanation?.status === "loading" ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {explanation?.status === "loading"
+                      ? "Explaining…"
+                      : explanation?.status === "error"
+                        ? "Try again"
+                        : "Explain availability"}
+                  </button>
+
+                  {explanation?.status === "error" && (
+                    <p className="mt-3 flex items-start gap-1.5 text-sm text-slate-800">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{explanationErrorMessage(explanation.code)}</span>
+                    </p>
+                  )}
+
+                  {explanation?.status === "done" && (
+                    <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3">
+                      <p className="mb-1.5 inline-flex items-center gap-1.5 rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-800">
+                        <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Mock Explanation
+                      </p>
+                      <p className="text-sm text-slate-900">{explanation.text}</p>
+                      <p className="mt-2 text-xs text-slate-600">
+                        Generated text for information only. It is not a booking confirmation; the decision above is the checked result.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
     
               <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
